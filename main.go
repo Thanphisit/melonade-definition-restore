@@ -1,40 +1,140 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
+	"fmt"
 	melonadeClientGo "github.com/devit-tel/melonade-client-go"
+	"io/ioutil"
 	"log"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 func main() {
-	var oldMelonade = flag.String("old-url", "http://melonade.example.com", "old melonade process manager url")
-	var newMelonade = flag.String("new-url", "http://melonade-new.example.com", "new melonade process manager url")
+	var melonadeUrl = flag.String("url", "http://melonade.example.com", "melonade process manager endpoint")
+	var mode = flag.String("mode", "", "dump or restore")
+	var path = flag.String("path", "./backup", "files location")
 	flag.Parse()
 
-	cOld := melonadeClientGo.New(*oldMelonade)
-	cNew := melonadeClientGo.New(*newMelonade)
+	switch *mode {
+	case "dump":
+		dump(melonadeClientGo.New(*melonadeUrl), *path)
+	case "restore":
+		restore(melonadeClientGo.New(*melonadeUrl), *path)
+	default:
+		fmt.Println(`unknown mode: only support "dump" and "restore"`)
+	}
+}
 
-	ts, err := cOld.GetTaskDefinitions()
+func dump(c melonadeClientGo.Service, p string) error {
+	ts, err := c.GetTaskDefinitions()
 	if err != nil {
 		log.Fatal(err)
 	}
+	fmt.Println("downloaded task definitions")
+
+	os.MkdirAll(fmt.Sprintf("%s/tasks", p), os.ModePerm)
 
 	for _, t := range ts {
-		err := cNew.SetTaskDefinition(*t)
+		b, err := json.Marshal(t)
 		if err != nil {
-			log.Println(err, *t)
+			log.Println(t.Name, err)
+		}
+		err = ioutil.WriteFile(fmt.Sprintf("%s/tasks/%s.json", p, t.Name), b, 0644)
+		if err != nil {
+			log.Println(t.Name, err)
 		}
 	}
 
-	ws, err := cOld.GetWorkflowDefinitions()
+	ws, err := c.GetWorkflowDefinitions()
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	fmt.Println("downloaded workflow definitions")
 	for _, w := range ws {
-		err := cNew.SetWorkflowDefinition(*w)
+		b, err := json.Marshal(w)
 		if err != nil {
-			log.Println(err, *w)
+			log.Println(w.Name, w.Rev, err)
+		}
+
+		os.MkdirAll(fmt.Sprintf("%s/workflows/%s", p, w.Name), os.ModePerm)
+
+		err = ioutil.WriteFile(fmt.Sprintf("%s/workflows/%s/%s.json", p, w.Name, w.Rev), b, 0644)
+		if err != nil {
+			log.Println(w.Name, err)
 		}
 	}
+
+	return nil
+}
+
+func restore(c melonadeClientGo.Service, p string) error {
+	err := filepath.Walk(fmt.Sprintf("%s/tasks", p),
+		func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if !info.IsDir() {
+				if strings.HasSuffix(path, ".json") {
+					b, err := ioutil.ReadFile(path)
+					if err != nil {
+						fmt.Println(err)
+						return nil
+					}
+					var t melonadeClientGo.TaskDefinition
+					err = json.Unmarshal(b, &t)
+					if err != nil {
+						fmt.Println(err)
+						return nil
+					}
+
+					err = c.SetTaskDefinition(t)
+					if err != nil {
+						fmt.Println(err)
+						return nil
+					}
+
+					fmt.Printf(`restored task %s`, t.Name)
+				}
+			}
+			return nil
+		})
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	return filepath.Walk(fmt.Sprintf("%s/workflows", p),
+		func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if !info.IsDir() {
+				if strings.HasSuffix(path, ".json") {
+					b, err := ioutil.ReadFile(path)
+					if err != nil {
+						fmt.Println(err)
+						return nil
+					}
+					var w melonadeClientGo.WorkflowDefinition
+					err = json.Unmarshal(b, &w)
+					if err != nil {
+						fmt.Println(err)
+						return nil
+					}
+
+					err = c.SetWorkflowDefinition(w)
+					if err != nil {
+						fmt.Println(err)
+						return nil
+					}
+					fmt.Printf(`restored workflow %s:%s`, w.Name, w.Rev)
+				}
+			}
+			return nil
+		})
+
 }
