@@ -23,6 +23,10 @@ func main() {
 		dump(melonadeClientGo.New(*melonadeUrl), *path)
 	case "restore":
 		restore(melonadeClientGo.New(*melonadeUrl), *path)
+	case "upgrade":
+		upgrade(melonadeClientGo.New(*melonadeUrl), *path)
+	case "clean":
+		clean(melonadeClientGo.New(*melonadeUrl), *path)
 	default:
 		fmt.Println(`unknown mode: only support "dump" and "restore"`)
 	}
@@ -81,23 +85,23 @@ func restore(c melonadeClientGo.Service, p string) error {
 				if strings.HasSuffix(path, ".json") {
 					b, err := ioutil.ReadFile(path)
 					if err != nil {
-						fmt.Println(err)
+						fmt.Println(err.Error())
 						return nil
 					}
 					var t melonadeClientGo.TaskDefinition
 					err = json.Unmarshal(b, &t)
 					if err != nil {
-						fmt.Println(err)
+						fmt.Println(err.Error())
 						return nil
 					}
 
-					err = c.SetTaskDefinition(t)
+					err = c.CreateTaskDefinition(t)
 					if err != nil {
-						fmt.Println(err)
+						fmt.Println(err.Error())
 						return nil
 					}
 
-					fmt.Printf(`restored task %s`, t.Name)
+					fmt.Printf("restored task %s\n", t.Name)
 				}
 			}
 			return nil
@@ -116,25 +120,110 @@ func restore(c melonadeClientGo.Service, p string) error {
 				if strings.HasSuffix(path, ".json") {
 					b, err := ioutil.ReadFile(path)
 					if err != nil {
-						fmt.Println(err)
+						fmt.Println(err.Error())
 						return nil
 					}
 					var w melonadeClientGo.WorkflowDefinition
 					err = json.Unmarshal(b, &w)
 					if err != nil {
-						fmt.Println(err)
+						fmt.Println(err.Error())
 						return nil
 					}
 
-					err = c.SetWorkflowDefinition(w)
+					err = c.CreateWorkflowDefinition(w)
 					if err != nil {
-						fmt.Println(err)
+						fmt.Println(err.Error())
 						return nil
 					}
-					fmt.Printf(`restored workflow %s:%s`, w.Name, w.Rev)
+					fmt.Printf("restored workflow %s:%s\n", w.Name, w.Rev)
 				}
 			}
 			return nil
 		})
+}
 
+func upgrade(c melonadeClientGo.Service, p string) error {
+	err := filepath.Walk(fmt.Sprintf("%s/tasks", p),
+		func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if !info.IsDir() {
+				if strings.HasSuffix(path, ".json") {
+					b, err := ioutil.ReadFile(path)
+					if err != nil {
+						fmt.Println(err.Error())
+						return nil
+					}
+					var t melonadeClientGo.TaskDefinition
+					err = json.Unmarshal(b, &t)
+					if err != nil {
+						fmt.Println(err.Error())
+						return nil
+					}
+
+					err = c.UpdateTaskDefinition(t)
+					if err != nil {
+						fmt.Println(err.Error())
+						return nil
+					}
+
+					fmt.Printf("restored task %s\n", t.Name)
+				}
+			}
+			return nil
+		})
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	return filepath.Walk(fmt.Sprintf("%s/workflows", p),
+		func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if !info.IsDir() {
+				if strings.HasSuffix(path, ".json") {
+					b, err := ioutil.ReadFile(path)
+					if err != nil {
+						fmt.Println(err.Error())
+						return nil
+					}
+					var w melonadeClientGo.WorkflowDefinition
+					err = json.Unmarshal(b, &w)
+					if err != nil {
+						fmt.Println(err.Error())
+						return nil
+					}
+
+					err = c.UpdateWorkflowDefinition(w)
+					if err != nil {
+						fmt.Println(err.Error())
+						return nil
+					}
+					fmt.Printf("restored workflow %s:%s\n", w.Name, w.Rev)
+				}
+			}
+			return nil
+		})
+}
+
+func clean(c melonadeClientGo.Service, p string) error {
+	ws, err := c.GetWorkflowDefinitions()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("downloaded workflow definitions")
+	for _, w := range ws {
+		err := c.DeleteWorkflowDefinition(w.Name, w.Rev)
+		if err != nil {
+			fmt.Println(err.Error())
+		} else {
+			fmt.Printf("Deleted %s:%s", w.Name, w.Rev)
+		}
+	}
+
+	return nil
 }
