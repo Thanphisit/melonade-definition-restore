@@ -221,7 +221,7 @@ func clean(c melonadeClientGo.Service, p string) error {
 		if err != nil {
 			fmt.Println(err.Error())
 		} else {
-			fmt.Printf("Deleted %s:%s", w.Name, w.Rev)
+			fmt.Printf("Deleted %s:%s\n", w.Name, w.Rev)
 		}
 	}
 
